@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Wayfarer.Pathfinding;
+namespace Wayfarer.API;
 
 public readonly struct Handle : IDisposable
 {
@@ -15,6 +15,6 @@ public readonly struct Handle : IDisposable
 
     public void Dispose()
     {
-        throw new NotImplementedException();
+        Wayfarer.Dispose(this);
     }
 }

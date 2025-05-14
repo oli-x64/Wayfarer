@@ -5,7 +5,7 @@ using Wayfarer.Tiles;
 
 namespace Wayfarer.Pathfinding;
 
-internal sealed class PathfinderInstance(NavMeshParameters navMeshParameters)
+internal sealed class PathfinderInstance(NavMeshParameters navMeshParameters) : IDisposable
 {
     private readonly NavMeshParameters navMeshParameters = navMeshParameters;
 
@@ -35,26 +35,14 @@ internal sealed class PathfinderInstance(NavMeshParameters navMeshParameters)
         wallWireStateSnapshot = new TileDataSnapshot<TileWallWireStateData>(minX, minY, maxX, maxY);
         liquidSnapshot = new TileDataSnapshot<LiquidData>(minX, minY, maxX, maxY);
         typeSnapshot = new TileDataSnapshot<TileTypeData>(minX, minY, maxX, maxY);
+    }
 
-        bool failed = false;
+    public void Dispose()
+    {
+        // TODO: threaded operations will need to be cancelled here.
 
-        for (uint y = minY; y < maxY; y++)
-        {
-            for (uint x = minX; x < maxX; x++)
-            {
-                TileWallWireStateData data = wallWireStateSnapshot.Get(new Microsoft.Xna.Framework.Point((int)x, (int)y));
-
-                uint id = y + (x * Main.tile.Height);
-
-                TileWallWireStateData compare = new Tile(id).Get<TileWallWireStateData>();
-
-                if (data.bitpack != compare.bitpack)
-                {
-                    failed = true;
-                }
-            }
-        }
-
-        Main.NewText($"Copy test failure: {failed}");
+        wallWireStateSnapshot.Dispose();
+        liquidSnapshot.Dispose();
+        typeSnapshot.Dispose();
     }
 }
