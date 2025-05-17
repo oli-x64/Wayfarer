@@ -1,14 +1,11 @@
 .vs/
 .vscode/
 .idea/
-.catalyst/
+
+# Since this is being developed in the ModSources directory, tModLoader automatically adds this file...
+Localization/
 
 bin/
 obj/
 
 *.user
-
-# You should figure out a better way to ignore these.
-# Should they even be ignored?
-EasyXnb.*
-Microsoft.Xna.Framework.*

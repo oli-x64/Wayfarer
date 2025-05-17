@@ -1,48 +1,153 @@
 ﻿using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Channels;
+using System.Threading.Tasks;
+using Microsoft.Xna.Framework;
 using Terraria;
-using Wayfarer.Configuration;
-using Wayfarer.Tiles;
+using Wayfarer.Data;
+using Wayfarer.Edges;
 
 namespace Wayfarer.Pathfinding;
 
-internal sealed class PathfinderInstance(NavMeshParameters navMeshParameters) : IDisposable
+internal sealed class PathfinderInstance(NavMeshParameters navMeshParameters, NavigatorParameters navigatorParameters) : IDisposable
 {
-    private readonly NavMeshParameters navMeshParameters = navMeshParameters;
+    private readonly CancellationTokenSource cancellationTokenSource = new();
 
-    private TileDataSnapshot<TileWallWireStateData> wallWireStateSnapshot;
-    private TileDataSnapshot<LiquidData> liquidSnapshot;
-    private TileDataSnapshot<TileTypeData> typeSnapshot;
+    private volatile NavMeshParameters navMeshParameters = navMeshParameters;
 
-    public void Recalculate()
+    private readonly NavigatorParameters navigatorParameters = navigatorParameters;
+
+    private Task pathfindingWorker;
+
+    private volatile bool recalculateNavMesh = true;
+    private volatile bool recalculatePathResult;
+
+    private readonly ConcurrentDictionary<Point, int> pointToNodeId = [];
+    private readonly ConcurrentDictionary<int, Point> nodeIdToPoint = [];
+    private readonly ConcurrentDictionary<int, List<Edge>> adjacencyMap = [];
+
+    private readonly HashSet<Point> validNodes = [];
+
+    private void StartWorkerThread()
     {
-        CopyTileData(navMeshParameters);
+        pathfindingWorker = Task.Run(WorkerThread, cancellationTokenSource.Token);
     }
 
-    /// <summary>
-    /// In order for the pathfinding system to determine if nodes are valid, it needs access to tile data. Since we don't want to read Main.tile on our worker thread 
-    /// due to possibility of main thread writes, a copy of the relevant region needs to be made. The included data types are <see cref="TileWallWireStateData"/>,
-    /// <see cref="LiquidData"/>, and <see cref="TileTypeData"/>.
-    /// </summary>
-    /// <param name="navMeshParameters"></param>
-    private void CopyTileData(NavMeshParameters navMeshParameters)
+    private void WorkerThread()
     {
-        // Ensure the bounding box is never outside the world.
-        uint minX = (uint)Math.Clamp(navMeshParameters.CentralTile.X - navMeshParameters.TileRadius, 0, Main.maxTilesX - 1);
-        uint minY = (uint)Math.Clamp(navMeshParameters.CentralTile.Y - navMeshParameters.TileRadius, 0, Main.maxTilesY - 1);
-        uint maxX = (uint)Math.Clamp(navMeshParameters.CentralTile.X + navMeshParameters.TileRadius, 0, Main.maxTilesX - 1);
-        uint maxY = (uint)Math.Clamp(navMeshParameters.CentralTile.Y + navMeshParameters.TileRadius, 0, Main.maxTilesY - 1);
+        while (!cancellationTokenSource.IsCancellationRequested)
+        {
+            HandleNavMesh();
+            HandlePathfinding();
+        }
+    }
 
-        wallWireStateSnapshot = new TileDataSnapshot<TileWallWireStateData>(minX, minY, maxX, maxY);
-        liquidSnapshot = new TileDataSnapshot<LiquidData>(minX, minY, maxX, maxY);
-        typeSnapshot = new TileDataSnapshot<TileTypeData>(minX, minY, maxX, maxY);
+    private void RegenerateNavMesh()
+    {
+        pointToNodeId.Clear();
+        nodeIdToPoint.Clear();
+        adjacencyMap.Clear();
+        validNodes.Clear();
+
+        int minX = Math.Clamp(navMeshParameters.CentralTile.X - navMeshParameters.TileRadius, 0, Main.maxTilesX);
+        int minY = Math.Clamp(navMeshParameters.CentralTile.Y - navMeshParameters.TileRadius, 0, Main.maxTilesY);
+        int maxX = Math.Clamp(navMeshParameters.CentralTile.X + navMeshParameters.TileRadius, 0, Main.maxTilesX);
+        int maxY = Math.Clamp(navMeshParameters.CentralTile.Y + navMeshParameters.TileRadius, 0, Main.maxTilesY);
+
+        int centreX = navMeshParameters.CentralTile.X;
+        int centreY = navMeshParameters.CentralTile.Y;
+
+        for (int y = minY; y < maxY; y++)
+        {
+            for (int x = minX; x < maxX; x++)
+            {
+                Point node = new(x + centreX, y + centreY);
+
+                if (navMeshParameters.IsValidNode.Invoke(node, navigatorParameters.NavigatorHitbox))
+                {
+                    int nodeId = (int)Main.tile[node.X, node.Y].TileId;
+
+                    pointToNodeId[node] = nodeId;
+                    nodeIdToPoint[nodeId] = node;
+
+                    validNodes.Add(node);
+                }
+            }
+        }
+
+        RegenerateAdjacencyMap();
+    }
+
+    private void RegenerateAdjacencyMap()
+    {
+        lock (EdgeType.PointPool)
+        {
+            EdgeType.PointPool = new Point[pointToNodeId.Count];
+
+            foreach (Point validTile in pointToNodeId.Keys)
+            {
+                int nodeId = pointToNodeId[validTile];
+                adjacencyMap[nodeId] = [];
+
+                foreach (var edgeType in EdgeTypeRegistry.EdgeTypesById)
+                {
+                    int edgeId = edgeType.Key;
+
+                    Span<Point> validPoints = edgeType.Value.PopulatePointSpan(validTile, navigatorParameters, validNodes);
+
+                    foreach (Point destination in validPoints)
+                    {
+                        float cost = edgeType.Value.CostFunction(validTile, destination);
+
+                        adjacencyMap[nodeId].Add(new Edge(pointToNodeId[validTile], pointToNodeId[destination], edgeId, cost));
+                    }
+                }
+            }
+        }
+    }
+
+    public void RegeneratePath()
+    {
+
     }
 
     public void Dispose()
     {
-        // TODO: threaded operations will need to be cancelled here.
+        cancellationTokenSource.Cancel();
+    }
 
-        wallWireStateSnapshot.Dispose();
-        liquidSnapshot.Dispose();
-        typeSnapshot.Dispose();
+    public void RecalculateNavMesh(NavMeshParameters newParameters = null)
+    {
+        if (newParameters is not null)
+            navMeshParameters = newParameters;
+
+        recalculateNavMesh = true;
+    }
+
+    public void RecalculatePath()
+    {
+        recalculatePathResult = true;
+    }
+
+    private void HandleNavMesh()
+    {
+        if (!recalculateNavMesh)
+            return;
+
+        RegenerateNavMesh();
+
+        recalculateNavMesh = false;
+    }
+
+    private void HandlePathfinding()
+    {
+        if (!recalculatePathResult)
+            return;
+
+        RegeneratePath();
+
+        recalculatePathResult = false;
     }
 }
