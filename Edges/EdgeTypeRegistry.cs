@@ -14,7 +14,7 @@ internal static class EdgeTypeRegistry
 
     public static IReadOnlyDictionary<Type, int> IdByEdgeType => idByEdgeType;
 
-    private static int Count { get; set; }
+    private static int count;
 
     private static readonly Dictionary<int, EdgeType> edgeTypesById;
     private static readonly Dictionary<Type, int> idByEdgeType;
@@ -26,10 +26,10 @@ internal static class EdgeTypeRegistry
 
         T edgeType = new();
 
-        edgeTypesById[Count] = edgeType;
-        idByEdgeType[typeof(T)] = Count;
+        edgeTypesById[count] = edgeType;
+        idByEdgeType[typeof(T)] = count;
 
-        Count++;
+        count++;
     }
 
     static EdgeTypeRegistry()
@@ -45,7 +45,7 @@ internal static class EdgeTypeRegistry
 
 public static class EdgeExtensions
 {
-    public static bool Is<T>(this Edge edge) where T : EdgeType => edge.EdgeType == EdgeTypeRegistry.IdByEdgeType[typeof(T)];
+    public static bool Is<T>(this PathEdge edge) where T : EdgeType => edge.EdgeType == EdgeTypeRegistry.IdByEdgeType[typeof(T)];
 }
 
 public abstract class EdgeType
@@ -60,6 +60,8 @@ public abstract class EdgeType
     /// </summary>
     internal static Point[] PointPool = [];
 
+    internal static object PoolLock = new object();
+
     private int count;
 
     protected void AddNode(Point destination)
@@ -73,12 +75,12 @@ public abstract class EdgeType
 
     internal Span<Point> PopulatePointSpan(Point node, NavigatorParameters navigatorParameters, IReadOnlySet<Point> existingNodes)
     {
-        int pointCount = count;
+        CalculateValidDestinationsFrom(node, navigatorParameters, existingNodes);
+
+        Span<Point> result = new Span<Point>(PointPool).Slice(0, count);
 
         count = 0;
 
-        CalculateValidDestinationsFrom(node, navigatorParameters, existingNodes);
-
-        return PointPool.AsSpan().Slice(pointCount);
+        return result;
     }
 }

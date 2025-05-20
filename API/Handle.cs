@@ -6,6 +6,8 @@ public struct Handle : IDisposable
 {
     public static readonly Handle Invalid = new(-1);
 
+    public readonly bool Initialized;
+
     internal readonly int ID;
 
     internal bool IsDisposed;
@@ -13,12 +15,16 @@ public struct Handle : IDisposable
     internal Handle(int id)
     {
         ID = id;
+        Initialized = true;
     }
 
     public void Dispose()
     {
-        IsDisposed = true;
-        Wayfarer.Dispose(this);
+        if (Initialized)
+        {
+            WayfarerAPI.Dispose(this);
+            IsDisposed = true;
+        }
     }
 
     public static bool operator ==(Handle h1, Handle h2) => h1.ID == h2.ID;

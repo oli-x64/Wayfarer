@@ -18,7 +18,7 @@ public static class WayfarerPresets
     /// <param name="tile"></param>
     /// <param name="hitbox"></param>
     /// <returns></returns>
-    public static bool ValidWalkableTile(Point tile, Rectangle hitbox)
+    public static bool DefaultIsTileValid(Point tile, Rectangle hitbox)
     {
         int heightInTiles = (int)Math.Ceiling(hitbox.Height / 16f);
 
@@ -45,5 +45,28 @@ public static class WayfarerPresets
         }
 
         return true;
+    }
+
+    public static Vector2 DefaultJumpFunction(Vector2 start, Vector2 end, Func<float> gravityFunction)
+    {
+        float dx = end.X - start.X;
+        float dy = end.Y - start.Y;
+
+        // Invert for +Y = down.
+        dy *= -1;
+
+        float r = MathF.Sqrt(dx * dx + dy * dy);
+
+        float gravity = gravityFunction.Invoke();
+
+        float minimalV0 = MathF.Sqrt(gravity * (dy + r));
+        float theta = MathF.Atan2(dy + r, dx);
+
+        float ux = minimalV0 * MathF.Cos(theta);
+        float uy = minimalV0 * -MathF.Sin(theta);
+
+        uy -= gravity;
+
+        return new Vector2(ux, uy);
     }
 }

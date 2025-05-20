@@ -69,7 +69,7 @@ public sealed class Fall : EdgeType
                 if (!WorldGen.InWorld(neighbouringPoint.X, neighbouringPoint.Y))
                     break;
 
-                if (NPCCanStandOnTile(neighbouringPoint.X, neighbouringPoint.Y))
+                if (HitboxCanStandOnTile(neighbouringPoint.X, neighbouringPoint.Y))
                 {
                     if (yDrop >= 2 && existingNodes.Contains(neighbouringPoint))
                     {
@@ -83,7 +83,7 @@ public sealed class Fall : EdgeType
         }
     }
 
-    private static bool NPCCanStandOnTile(int x, int y)
+    private static bool HitboxCanStandOnTile(int x, int y)
     {
         if (!WorldGen.InWorld(x, y))
             return false;
@@ -103,7 +103,7 @@ public sealed class Fall : EdgeType
 
 public sealed class Jump : EdgeType
 {
-    private const float JumpCost = 4;
+    private const float JumpCost = 8;
 
     public override float CostFunction(Point start, Point end)
     {
@@ -145,9 +145,17 @@ public sealed class Jump : EdgeType
         Vector2 startVector = new Vector2(start.X * 16, start.Y * 16) + new Vector2(8, 0);
         Vector2 endVector = new Vector2(end.X * 16, end.Y * 16) + new Vector2(8, 0);
 
-        Vector2 u = navigatorParameters.JumpFunction.Invoke(startVector, endVector);
+        Vector2 u = navigatorParameters.JumpFunction.Invoke(startVector, endVector, navigatorParameters.GravityFunction);
 
+        float dx = endVector.X - startVector.X;
         float dy = endVector.Y - startVector.Y;
+
+        // We cannot jump into the floor.
+        if (u.Y > 0)
+            return false;
+
+        if (dy > 0 && (2 * Math.Abs(dx) < Math.Abs(dy)))
+            return false;
 
         float npcGravity = navigatorParameters.GravityFunction.Invoke();
         float discriminant = (u.Y * u.Y) + (2 * npcGravity * dy);
@@ -175,7 +183,7 @@ public sealed class Jump : EdgeType
                 continue;
             }
 
-            if (!NPCCanIntersectTile(tileX, tileY))
+            if (!HitboxCanIntersectTile(tileX, tileY))
                 return false;
 
             // If the test point is very close to the destination, be lenient with checks.
@@ -190,7 +198,7 @@ public sealed class Jump : EdgeType
             {
                 int offsetTileY = tileY - yOffsetTiles;
 
-                if (!NPCCanIntersectTile(tileX, offsetTileY))
+                if (!HitboxCanIntersectTile(tileX, offsetTileY))
                     return false;
             }
         }
@@ -198,7 +206,7 @@ public sealed class Jump : EdgeType
         return true;
     }
 
-    private static bool NPCCanIntersectTile(int x, int y)
+    private static bool HitboxCanIntersectTile(int x, int y)
     {
         if (!WorldGen.InWorld(x, y))
             return false;
