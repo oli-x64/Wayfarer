@@ -115,10 +115,10 @@ public static class WayfarerAPI
         path.DebugRenderPath(spriteBatch, result);
     }
 
+    public static void Shutdown() => RequestProcessor.Shutdown();
+
     internal static void Dispose(WayfarerHandle handle)
     {
-        RequestProcessor.FirstTimeSetupIfNeeded();
-
         if (handle == WayfarerHandle.Invalid || handle.IsDisposed)
             throw new ArgumentException($"Cannot dispose invalid or disposed handle! Handle: {handle}");
 

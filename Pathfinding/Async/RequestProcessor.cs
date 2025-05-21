@@ -46,7 +46,7 @@ internal static class RequestProcessor
         initialised = true;
     }
 
-    public static async Task ShutdownAsync()
+    public static void Shutdown()
     {
         if (!initialised)
             return;
@@ -68,7 +68,7 @@ internal static class RequestProcessor
         {
             try
             {
-                await Task.WhenAll(processors).ConfigureAwait(false);
+                Task.WaitAll(processors.ToArray());
             }
             catch (OperationCanceledException) { }
         }
