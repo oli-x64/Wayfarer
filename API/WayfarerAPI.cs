@@ -6,10 +6,11 @@ using Microsoft.Xna.Framework.Graphics;
 using Terraria;
 using Wayfarer.Data;
 using Wayfarer.Pathfinding;
+using Wayfarer.Pathfinding.Async;
 
 namespace Wayfarer.API;
 
-public sealed class WayfarerAPI
+public static class WayfarerAPI
 {
     private const int MaxInstances = 2048;
 
@@ -19,9 +20,11 @@ public sealed class WayfarerAPI
 
     private static int nextIndex;
 
-    public static bool TryCreatePathfindingInstance(NavMeshParameters navMeshParameters, NavigatorParameters navigatorParameters, out Handle handle)
+    public static bool TryCreatePathfindingInstance(NavMeshParameters navMeshParameters, NavigatorParameters navigatorParameters, out WayfarerHandle handle)
     {
-        handle = Handle.Invalid;
+        RequestProcessor.FirstTimeSetupIfNeeded();
+
+        handle = WayfarerHandle.Invalid;
 
         int newIndex;
 
@@ -40,18 +43,20 @@ public sealed class WayfarerAPI
             }
         }
 
-        PathfinderInstance instance = new(navMeshParameters, navigatorParameters);
+        handle = new(newIndex);
+
+        PathfinderInstance instance = new(handle, navMeshParameters, navigatorParameters);
 
         pathfinders.Put(newIndex, instance);
-
-        handle = new(newIndex);
 
         return true;
     }
 
-    public static void RecalculateNavMesh(Handle handle, Point? newCentre = null)
+    public static void RecalculateNavMesh(WayfarerHandle handle, Point? newCentre = null)
     {
-        if (handle == Handle.Invalid || handle.IsDisposed)
+        RequestProcessor.FirstTimeSetupIfNeeded();
+
+        if (handle == WayfarerHandle.Invalid || handle.IsDisposed)
             throw new ArgumentException($"Cannot recalculate with invalid or disposed handle! Handle: {handle}");
 
         var path = pathfinders.Get(handle.ID);
@@ -59,12 +64,14 @@ public sealed class WayfarerAPI
         path.RecalculateNavMesh(newCentre);
     }
 
-    public static void RecalculatePath(Handle handle, Point[] starts, Action<PathResult> onComplete)
+    public static void RecalculatePath(WayfarerHandle handle, Point[] starts, Action<PathResult> onComplete)
     {
-        if (handle == Handle.Invalid || handle.IsDisposed)
+        RequestProcessor.FirstTimeSetupIfNeeded();
+
+        if (handle == WayfarerHandle.Invalid || handle.IsDisposed)
             throw new ArgumentException($"Cannot recalculate with invalid or disposed handle! Handle: {handle}");
 
-        if (starts.Length == 0)
+        if (starts is null || starts.Length == 0)
             throw new ArgumentException($"No starting points specified!");
 
         var path = pathfinders.Get(handle.ID);
@@ -72,19 +79,11 @@ public sealed class WayfarerAPI
         path.RecalculatePathfinding(starts, onComplete);
     }
 
-    public static bool IsCurrentlyPathfinding(Handle handle)
+    public static bool PointIsInNavMesh(WayfarerHandle handle, Point node)
     {
-        if (handle == Handle.Invalid || handle.IsDisposed)
-            throw new ArgumentException($"Cannot get pathfinding status with invalid or disposed handle! Handle: {handle}");
+        RequestProcessor.FirstTimeSetupIfNeeded();
 
-        var path = pathfinders.Get(handle.ID);
-
-        return path.IsRecalculating;
-    }
-
-    public static bool PointIsInNavMesh(Handle handle, Point node)
-    {
-        if (handle == Handle.Invalid || handle.IsDisposed)
+        if (handle == WayfarerHandle.Invalid || handle.IsDisposed)
             throw new ArgumentException($"Cannot check navmesh with invalid or disposed handle! Handle: {handle}");
 
         var path = pathfinders.Get(handle.ID);
@@ -92,9 +91,11 @@ public sealed class WayfarerAPI
         return path.IsValidNode(node);
     }
 
-    public static void DebugRenderNavMesh(Handle handle, SpriteBatch spriteBatch)
+    public static void DebugRenderNavMesh(WayfarerHandle handle, SpriteBatch spriteBatch)
     {
-        if (handle == Handle.Invalid || handle.IsDisposed)
+        RequestProcessor.FirstTimeSetupIfNeeded();
+
+        if (handle == WayfarerHandle.Invalid || handle.IsDisposed)
             throw new ArgumentException($"Cannot debug render with invalid or disposed handle! Handle: {handle}");
 
         var path = pathfinders.Get(handle.ID);
@@ -102,9 +103,11 @@ public sealed class WayfarerAPI
         path.DebugRender(spriteBatch);
     }
 
-    public static void DebugRenderPath(Handle handle, SpriteBatch spriteBatch, PathResult result)
+    public static void DebugRenderPath(WayfarerHandle handle, SpriteBatch spriteBatch, PathResult result)
     {
-        if (handle == Handle.Invalid || handle.IsDisposed)
+        RequestProcessor.FirstTimeSetupIfNeeded();
+
+        if (handle == WayfarerHandle.Invalid || handle.IsDisposed)
             throw new ArgumentException($"Cannot debug render with invalid or disposed handle! Handle: {handle}");
 
         var path = pathfinders.Get(handle.ID);
@@ -112,9 +115,11 @@ public sealed class WayfarerAPI
         path.DebugRenderPath(spriteBatch, result);
     }
 
-    internal static void Dispose(Handle handle)
+    internal static void Dispose(WayfarerHandle handle)
     {
-        if (handle == Handle.Invalid || handle.IsDisposed)
+        RequestProcessor.FirstTimeSetupIfNeeded();
+
+        if (handle == WayfarerHandle.Invalid || handle.IsDisposed)
             throw new ArgumentException($"Cannot dispose invalid or disposed handle! Handle: {handle}");
 
         var path = pathfinders.Remove(handle.ID);

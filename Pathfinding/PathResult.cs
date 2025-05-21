@@ -9,7 +9,7 @@ using Wayfarer.Edges;
 
 namespace Wayfarer.Pathfinding;
 
-public class PathResult
+public sealed class PathResult
 {
     public bool HasPath => path.Count > 0;
 
@@ -18,16 +18,14 @@ public class PathResult
     private int index;
 
     private readonly List<PathEdge> path;
-    private readonly PathfinderInstance parent;
 
     internal List<PathEdge> Path => path;
 
     public bool IsAlreadyAtGoal {  get; private set; } 
 
-    internal PathResult(List<PathEdge> path, bool alreadyAtGoal, PathfinderInstance parent)
+    internal PathResult(List<PathEdge> path, bool alreadyAtGoal)
     {
         this.path = path;
-        this.parent = parent;
         
         IsAlreadyAtGoal = alreadyAtGoal;
 

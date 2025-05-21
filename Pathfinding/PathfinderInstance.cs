@@ -12,31 +12,26 @@ using Terraria.GameContent;
 using Wayfarer.API;
 using Wayfarer.Data;
 using Wayfarer.Edges;
+using Wayfarer.Pathfinding.Async;
 
 namespace Wayfarer.Pathfinding;
 
 internal sealed class PathfinderInstance : IDisposable
 {
+    private readonly WayfarerHandle handle;
+
     private volatile NavMeshParameters navMeshParameters;
     private readonly NavigatorParameters navigatorParameters;
 
-    private Task<NavMesh> recalculateNavMesh;
-    private Task recalculatePath;
-
     private readonly CancellationTokenSource cancellationTokenSource;
 
-    private static readonly SemaphoreSlim pathSemaphore = new(Math.Max(Environment.ProcessorCount / 4, 1));
-
-    public bool IsRecalculating => recalculatePath != null && !recalculatePath.IsCompleted;
-
-    public PathfinderInstance(NavMeshParameters navMeshParameters, NavigatorParameters navigatorParameters)
+    public PathfinderInstance(WayfarerHandle handle, NavMeshParameters navMeshParameters, NavigatorParameters navigatorParameters)
     {
+        this.handle = handle;
         this.navMeshParameters = navMeshParameters;
         this.navigatorParameters = navigatorParameters;
 
         cancellationTokenSource = new();
-
-        RecalculateNavMesh();
     }
 
     public void Dispose()
@@ -46,196 +41,30 @@ internal sealed class PathfinderInstance : IDisposable
 
     public void RecalculateNavMesh(Point? newCentre = null)
     {
-        if (recalculateNavMesh is null || recalculateNavMesh.IsCompleted)
-        {
-            recalculateNavMesh = Task.Run(async () =>
-            {
-                await pathSemaphore.WaitAsync(cancellationTokenSource.Token);
-                try
-                {
-                    return NavMeshTask(newCentre);
-                }
-                finally
-                {
-                    pathSemaphore.Release();
-                }
-            }, cancellationTokenSource.Token);
-        }
+        if (newCentre is not null)
+            navMeshParameters = new(newCentre.Value, navMeshParameters.TileRadius, navMeshParameters.IsValidNode);
+
+        RequestProcessor.RequestNavMeshAsync(handle, navMeshParameters, navigatorParameters, true, cancellationTokenSource.Token);
     }
 
     public void RecalculatePathfinding(Point[] starts, Action<PathResult> onComplete)
     {
-        if (recalculatePath is null || recalculatePath.IsCompleted)
-        {
-            recalculatePath = Task.Run(async () =>
-            {
-                await pathSemaphore.WaitAsync(cancellationTokenSource.Token);
-                try
-                {
-                    await PathTask(starts, onComplete);
-                }
-                finally
-                {
-                    pathSemaphore.Release();
-                }
-            }, cancellationTokenSource.Token);
-        }
-    }
-
-    private NavMesh NavMeshTask(Point? newCentre = null)
-    {
-        if (newCentre is not null)
-            navMeshParameters = new(newCentre.Value, navMeshParameters.TileRadius, navMeshParameters.IsValidNode);
-
-        NavMesh newMesh = new(navMeshParameters, navigatorParameters);
-
-        newMesh.RegenerateNavMesh();
-
-        return newMesh;
-    }
-
-    private async Task PathTask(Point[] starts, Action<PathResult> onComplete)
-    {
-        NavMesh navMesh;
-
-        try
-        {
-            navMesh = await recalculateNavMesh;
-        }
-        // Throws if task is cancelled.
-        catch
-        {
-            return;
-        }
-
-        bool successfulPath = RegeneratePath(starts, out bool alreadyAtGoal, out List<PathEdge> traversal, navMesh);
-
-        PathResult resultCopy = successfulPath ? new(traversal, alreadyAtGoal, this) : null;
-
-        Main.QueueMainThreadAction(() => onComplete.Invoke(resultCopy));
-    }
-
-    private bool RegeneratePath(Point[] starts, out bool alreadyAtGoal, out List<PathEdge> traversal, NavMesh navMesh)
-    {
-        alreadyAtGoal = false;
-        traversal = [];
-
-        Point start;
-
-        bool successfulNode = false;
-
-        int startNodeId = -1;
-        int endNodeId = -1;
-
-        foreach (Point potentialStart in starts)
-        {
-            successfulNode = TryGetStartAndEndNodes(potentialStart, out startNodeId, out endNodeId);
-
-            if (successfulNode)
-            {
-                start = potentialStart;
-                break;
-            }
-        }
-
-        if (!successfulNode)
-            return false;
-
-        if (startNodeId == endNodeId)
-        {
-            alreadyAtGoal = true;
-            return true;
-        }
-
-        List<PathEdge> path = AStar.RunAStar(startNodeId, endNodeId, navMesh.AdjacencyMap, navMesh.NodeIdToPoint);
-
-        if (path is null)
-            return false;
-
-        traversal = path;
-
-        return traversal.Count > 0;
-    }
-
-    private bool TryGetStartAndEndNodes(Point start, out int startNodeId, out int endNodeId)
-    {
-        startNodeId = endNodeId = -1;
-
-        NavMesh navMesh = recalculateNavMesh.Result;
-
-        if (!navMesh.ValidNodes.Contains(start))
-        {
-            return false;
-        }
-
-        HashSet<Point> accessibleNodes = GetAccessibleNodesBFS(start);
-
-        Point end = navigatorParameters.FindIdealEndNodeFunction.Invoke(accessibleNodes);
-
-        if (end == Point.Zero)
-        {
-            return false;
-        }
-
-        startNodeId = navMesh.PointToNodeId[start];
-        endNodeId = navMesh.PointToNodeId[end];
-
-        return true;
-    }
-
-    private HashSet<Point> GetAccessibleNodesBFS(Point start)
-    {
-        HashSet<Point> traversal = [];
-
-        Queue<int> queue = [];
-
-        HashSet<int> visited = [];
-
-        NavMesh navMesh = recalculateNavMesh.Result;
-
-        int source = navMesh.PointToNodeId[start];
-
-        visited.Add(source);
-        queue.Enqueue(source);
-
-        while (queue.Count > 0)
-        {
-            int current = queue.Dequeue();
-
-            if (navMesh.ValidNodes.Contains(navMesh.NodeIdToPoint[current]))
-                traversal.Add(navMesh.NodeIdToPoint[current]);
-
-            foreach (Edge edge in navMesh.AdjacencyMap[current])
-            {
-                int neighbour = edge.To;
-
-                if (!visited.Contains(neighbour))
-                {
-                    visited.Add(neighbour);
-
-                    if (navMesh.AdjacencyMap.ContainsKey(neighbour))
-                        queue.Enqueue(neighbour);
-                }
-            }
-        }
-
-        return traversal;
+        RequestProcessor.RequestPathfindingAsync(handle, navMeshParameters, navigatorParameters, starts, onComplete, cancellationTokenSource.Token);
     }
 
     public bool IsValidNode(Point node)
     {
-        if (recalculateNavMesh is null || !recalculateNavMesh.IsCompleted)
-            return false;
+        NavMesh navMesh = RequestProcessor.TryGetNavMesh(handle);
 
-        return recalculateNavMesh.Result.ValidNodes.Contains(node);
+        return navMesh is not null && navMesh.ValidNodes.Contains(node);
     }
 
     public void DebugRender(SpriteBatch spriteBatch)
     {
-        if (recalculateNavMesh is null || !recalculateNavMesh.IsCompleted)
-            return;
+        NavMesh navMesh = RequestProcessor.TryGetNavMesh(handle);
 
-        NavMesh navMesh = recalculateNavMesh.Result;
+        if (navMesh is null)
+            return;
 
         foreach (int nodeId in navMesh.AdjacencyMap.Keys)
         {
@@ -243,28 +72,28 @@ internal sealed class PathfinderInstance : IDisposable
 
             foreach (Edge edge in adjacent)
             {
-                DrawEdge(spriteBatch, new PathEdge(navMesh.NodeIdToPoint[edge.From], navMesh.NodeIdToPoint[edge.To], edge.EdgeType));
+                DrawEdge(spriteBatch, new PathEdge(navMesh.NodeIdToPoint[edge.From], navMesh.NodeIdToPoint[edge.To], edge.EdgeType), navMesh);
             }
         }
     }
 
     public void DebugRenderPath(SpriteBatch spriteBatch, PathResult path)
     {
-        if (recalculateNavMesh is null || !recalculateNavMesh.IsCompleted)
+        NavMesh navMesh = RequestProcessor.TryGetNavMesh(handle);
+
+        if (navMesh is null)
             return;
 
         IEnumerable<PathEdge> edges = path.Path.AsEnumerable<PathEdge>();
 
         foreach (PathEdge edge in edges)
         {
-            DrawEdge(spriteBatch, edge);
+            DrawEdge(spriteBatch, edge, navMesh);
         }
     }
 
-    private void DrawEdge(SpriteBatch spriteBatch, PathEdge edge)
+    private void DrawEdge(SpriteBatch spriteBatch, PathEdge edge, NavMesh navMesh)
     {
-        NavMesh navMesh = recalculateNavMesh.Result;
-
         if (!navMesh.ValidNodes.Contains(edge.From) || !navMesh.ValidNodes.Contains(edge.To))
             return;
 

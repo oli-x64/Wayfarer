@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Xna.Framework;
 using Terraria;
@@ -11,10 +12,10 @@ using Wayfarer.Edges;
 
 namespace Wayfarer.Pathfinding;
 
-internal class NavMesh
+internal sealed class NavMesh
 {
-    private readonly NavMeshParameters navMeshParameters;
-    private readonly NavigatorParameters navigatorParameters;
+    public readonly NavMeshParameters NavMeshParameters;
+    public readonly NavigatorParameters NavigatorParameters;
 
     public Dictionary<Point, int> PointToNodeId;
     public Dictionary<int, Point> NodeIdToPoint;
@@ -24,8 +25,8 @@ internal class NavMesh
 
     public NavMesh(NavMeshParameters navMeshParameters, NavigatorParameters navigatorParameters)
     {
-        this.navMeshParameters = navMeshParameters;
-        this.navigatorParameters = navigatorParameters;
+        NavMeshParameters = navMeshParameters;
+        NavigatorParameters = navigatorParameters;
 
         PointToNodeId = [];
         NodeIdToPoint = [];
@@ -35,7 +36,7 @@ internal class NavMesh
 
     public NavMesh Clone()
     {
-        return new NavMesh(navMeshParameters, navigatorParameters)
+        return new NavMesh(NavMeshParameters, NavigatorParameters)
         {
             PointToNodeId = new(PointToNodeId),
             NodeIdToPoint = new(NodeIdToPoint),
@@ -44,17 +45,18 @@ internal class NavMesh
         };
     }
 
-    public void RegenerateNavMesh()
+    // TODO: make async so that it can be cancelled more easily.
+    public void RegenerateNavMesh(CancellationToken token)
     {
         PointToNodeId.Clear();
         NodeIdToPoint.Clear();
         AdjacencyMap.Clear();
         ValidNodes.Clear();
 
-        int minX = Math.Clamp(navMeshParameters.CentralTile.X - navMeshParameters.TileRadius, 0, Main.maxTilesX);
-        int minY = Math.Clamp(navMeshParameters.CentralTile.Y - navMeshParameters.TileRadius, 0, Main.maxTilesY);
-        int maxX = Math.Clamp(navMeshParameters.CentralTile.X + navMeshParameters.TileRadius, 0, Main.maxTilesX);
-        int maxY = Math.Clamp(navMeshParameters.CentralTile.Y + navMeshParameters.TileRadius, 0, Main.maxTilesY);
+        int minX = Math.Clamp(NavMeshParameters.CentralTile.X - NavMeshParameters.TileRadius, 0, Main.maxTilesX);
+        int minY = Math.Clamp(NavMeshParameters.CentralTile.Y - NavMeshParameters.TileRadius, 0, Main.maxTilesY);
+        int maxX = Math.Clamp(NavMeshParameters.CentralTile.X + NavMeshParameters.TileRadius, 0, Main.maxTilesX);
+        int maxY = Math.Clamp(NavMeshParameters.CentralTile.Y + NavMeshParameters.TileRadius, 0, Main.maxTilesY);
 
         for (int y = minY; y < maxY; y++)
         {
@@ -62,7 +64,7 @@ internal class NavMesh
             {
                 Point node = new(x, y);
 
-                if (navMeshParameters.IsValidNode.Invoke(node, navigatorParameters.NavigatorHitbox))
+                if (NavMeshParameters.IsValidNode.Invoke(node, NavigatorParameters.NavigatorHitbox))
                 {
                     int nodeId = (int)Main.tile[x, y].TileId;
 
@@ -72,12 +74,14 @@ internal class NavMesh
                     ValidNodes.Add(node);
                 }
             }
+
+            token.ThrowIfCancellationRequested();
         }
 
-        RegenerateAdjacencyMap();
+        RegenerateAdjacencyMap(token);
     }
 
-    private void RegenerateAdjacencyMap()
+    private void RegenerateAdjacencyMap(CancellationToken token)
     {
         lock (EdgeType.PoolLock)
         {
@@ -92,7 +96,7 @@ internal class NavMesh
                 {
                     int edgeId = edgeType.Key;
 
-                    Span<Point> validPoints = edgeType.Value.PopulatePointSpan(validTile, navigatorParameters, ValidNodes);
+                    Span<Point> validPoints = edgeType.Value.PopulatePointSpan(validTile, NavigatorParameters, ValidNodes);
 
                     foreach (Point destination in validPoints)
                     {
@@ -101,6 +105,8 @@ internal class NavMesh
                         AdjacencyMap[nodeId].Add(new Edge(PointToNodeId[validTile], PointToNodeId[destination], edgeId, cost));
                     }
                 }
+
+                token.ThrowIfCancellationRequested();
             }
         }
     }

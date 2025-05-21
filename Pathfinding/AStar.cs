@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Xna.Framework;
 using Wayfarer.Edges;
@@ -11,7 +12,7 @@ namespace Wayfarer.Pathfinding;
 
 internal static class AStar
 {
-    public static List<PathEdge> RunAStar(int startId, int endId, IReadOnlyDictionary<int, List<Edge>> adjacencyMap, IReadOnlyDictionary<int, Point> nodeIdToPoint)
+    public static List<PathEdge> RunAStar(CancellationToken token, int startId, int endId, IReadOnlyDictionary<int, List<Edge>> adjacencyMap, IReadOnlyDictionary<int, Point> nodeIdToPoint)
     {
         PriorityQueue<int, float> frontier = new();
         HashSet<int> openSet = [];
@@ -37,6 +38,8 @@ internal static class AStar
 
         while (frontier.Count > 0)
         {
+            token.ThrowIfCancellationRequested();
+
             int current = frontier.Dequeue();
 
             openSet.Remove(current);

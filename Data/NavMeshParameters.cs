@@ -3,7 +3,7 @@ using Microsoft.Xna.Framework;
 
 namespace Wayfarer.Data;
 
-public class NavMeshParameters(Point centralTile, int tileRadius, Func<Point, Rectangle, bool> isValidNode)
+public sealed class NavMeshParameters(Point centralTile, int tileRadius, Func<Point, Rectangle, bool> isValidNode)
 {
     public readonly Point CentralTile = centralTile;
     public readonly int TileRadius = tileRadius;
