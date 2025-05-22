@@ -103,13 +103,13 @@ public sealed class Fall : EdgeType
 
 public sealed class Jump : EdgeType
 {
-    private const float JumpCost = 8;
+    private const float JumpCost = 4;
 
     public override float CostFunction(Point start, Point end)
     {
         float jumpDistanceSq = Vector2.DistanceSquared(new(start.X, start.Y), new(end.X, end.Y));
 
-        return MathF.Min(jumpDistanceSq, JumpCost);
+        return Math.Max(JumpCost, jumpDistanceSq);
     }
 
     protected override void CalculateValidDestinationsFrom(Point node, NavigatorParameters navigatorParameters, IReadOnlySet<Point> existingNodes)
