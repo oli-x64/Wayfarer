@@ -15,9 +15,8 @@ public static class WayfarerPresets
     /// A preset method intended for use as <see cref="NavMeshParameters.IsValidNode"/>. This will return true for solid tiles with enough vertical clearance
     /// in the tiles above them to accommodate the hitbox. This method does not check for horizontal clearance!
     /// </summary>
-    /// <param name="tile"></param>
-    /// <param name="hitbox"></param>
-    /// <returns></returns>
+    /// <param name="tile">The position of the tile being checked.</param>
+    /// <param name="hitbox">The hitbox of the navigator.</param>
     public static bool DefaultIsTileValid(Point tile, Rectangle hitbox)
     {
         int heightInTiles = (int)Math.Ceiling(hitbox.Height / 16f);
@@ -30,7 +29,7 @@ public static class WayfarerPresets
             return false;
         }
 
-        // Check tiles above the standing tile to make sure the NPC's hitbox can fit.
+        // Check tiles above the standing tile to make sure the navigator's hitbox can fit.
         for (int yOffsetTiles = 1; yOffsetTiles < heightInTiles + 1; yOffsetTiles++)
         {
             int offsetTileY = tile.Y - yOffsetTiles;
@@ -47,6 +46,13 @@ public static class WayfarerPresets
         return true;
     }
 
+    /// <summary>
+    /// A preset method intended for use as <see cref="NavigatorParameters.JumpFunction"/>. Accounting for gravity, this method returns the minimum starting velocity required to jump a navigator from <paramref name="start"/> to <paramref name="end"/>.
+    /// </summary>
+    /// <param name="start">The world position of the start of the jump.</param>
+    /// <param name="end">The world position of the end of the jump.</param>
+    /// <param name="gravityFunction">The gravity function of the navigator. For common entities such as NPCs, this can just be <see cref="NPC.gravity"/></param>.
+    /// <returns>The minimum starting velocity required to clear the jump.</returns>
     public static Vector2 DefaultJumpFunction(Vector2 start, Vector2 end, Func<float> gravityFunction)
     {
         float dx = end.X - start.X;

@@ -6,11 +6,16 @@ using Wayfarer.Data;
 
 namespace Wayfarer.Edges;
 
+/// <summary>
+/// Represents a simple walkable path from A to B.
+/// Valid routes include flat surfaces and any diagnonal route that has 1-block steps. 
+/// All walk edges have a cost of <see cref="WalkCost"/> multiplied by their chebyshev distance to the destination.
+/// </summary>
 public sealed class Walk : EdgeType
 {
     private static readonly Point[] Directions = [new(-1, -1), new(-1, 1), new(1, 1), new(1, -1), new(1, 0), new(-1, 0)];
 
-    private const float WalkCost = 1;
+    public const float WalkCost = 1;
 
     public override float CostFunction(Point start, Point end)
     {
@@ -48,12 +53,16 @@ public sealed class Walk : EdgeType
     }
 }
 
+/// <summary>
+/// Represents a drop from a higher position A to a lower position B.
+/// Valid routes include ledges that drop onto solid tiles, with a maximum drop of <see cref="MaxDropTiles"/> and a constant cost of <see cref="FallCost"/>.
+/// </summary>
 public sealed class Fall : EdgeType
 {
-    private static readonly int[] Directions = [-1, 1];
+    public const int MaxDropTiles = 64;
+    public const float FallCost = 2;
 
-    private const float FallCost = 2;
-    private const int MaxDropTiles = 64;
+    private static readonly int[] Directions = [-1, 1];
 
     public override float CostFunction(Point start, Point end) => FallCost;
 
@@ -101,9 +110,15 @@ public sealed class Fall : EdgeType
     }
 }
 
+/// <summary>
+/// Represents a jump from A to B.
+/// Valid routes include any jump path that is unobstructed by tiles, however collision checks are not performed close to the destination,
+/// as it allows leniency with "slotting" into small gaps.
+/// Jump nodes have a cost of <see cref="JumpCost"/> * sqrt((a.X - b.X)^2 + (a.Y - b.Y)^2).
+/// </summary>
 public sealed class Jump : EdgeType
 {
-    private const float JumpCost = 4;
+    public const float JumpCost = 4;
 
     public override float CostFunction(Point start, Point end)
     {
@@ -157,13 +172,13 @@ public sealed class Jump : EdgeType
         if (dy > 0 && (2 * Math.Abs(dx) < Math.Abs(dy)))
             return false;
 
-        float npcGravity = navigatorParameters.GravityFunction.Invoke();
-        float discriminant = (u.Y * u.Y) + (2 * npcGravity * dy);
+        float gravity = navigatorParameters.GravityFunction.Invoke();
+        float discriminant = (u.Y * u.Y) + (2 * gravity * dy);
 
         if (discriminant < 0)
             return false;
 
-        float tof = (-u.Y + MathF.Sqrt(discriminant)) / npcGravity;
+        float tof = (-u.Y + MathF.Sqrt(discriminant)) / gravity;
 
         float tileSize = 16;
 
@@ -172,7 +187,7 @@ public sealed class Jump : EdgeType
         for (float t = dt; t <= tof; t += dt)
         {
             float x = startVector.X + (u.X * t);
-            float y = startVector.Y + (u.Y * t) + (0.5f * npcGravity * t * t);
+            float y = startVector.Y + (u.Y * t) + (0.5f * gravity * t * t);
 
             int tileX = (int)Math.Floor(x / 16);
             int tileY = (int)Math.Floor(y / 16);
@@ -193,7 +208,7 @@ public sealed class Jump : EdgeType
             // tileX and tileY indicate the bottom-left of the checked area.
             int heightInTiles = (int)Math.Ceiling(hitbox.Height / 16f);
 
-            // Check tiles above the standing tile to make sure the NPC's hitbox can fit.
+            // Check tiles above the standing tile to make sure the navigator's hitbox can fit.
             for (int yOffsetTiles = 1; yOffsetTiles < heightInTiles + 1; yOffsetTiles++)
             {
                 int offsetTileY = tileY - yOffsetTiles;
