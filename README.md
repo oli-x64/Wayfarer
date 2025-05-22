@@ -20,7 +20,7 @@ Wayfarer is a highly flexible library that supports high-performance multithread
 > The XML docs of this library provide supplementary info and can be viewed in an IDE. For any extra help, please join the discord: https://discord.gg/xcjK9hFuj7
 
 ## Including in a Mod
-This library is not distributed on the workshop, so you can't reference it via `modReferences`. The two best options are either to use `dllReferences`, meaning building the library from source/using a release to obtain the dll, or by `git submodule`ing this repo in your project.
+This library is not distributed on the workshop, so you can't reference it via `modReferences`. The two best options are either to use `dllReferences`, meaning building the library from source/using a release to obtain the dll, or by `git submodule`ing this repo in your project (although you may need to adjust the csproj, as the project expects to be in the `ModSources/Wayfarer` directory).
 
 > [!NOTE]
 > This project uses an AGPL 3.0 open-source license. This means that if you use its source, your project must also carry the same license!
