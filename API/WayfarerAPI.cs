@@ -9,6 +9,8 @@ using Wayfarer.Pathfinding;
 using Wayfarer.Pathfinding.Async;
 using Terraria.ModLoader;
 using Terraria.DataStructures;
+using System.IO;
+using Wayfarer.Edges;
 
 namespace Wayfarer.API;
 
@@ -183,5 +185,54 @@ public static class WayfarerAPI
         path.Dispose();
 
         freeIds.Enqueue(handle.ID, handle.ID);
+    }
+
+    /// <summary>
+    /// Allows a <see cref="PathResult"/> to be written to a <see cref="BinaryWriter"/> for networking purposes.
+    /// </summary>
+    /// <param name="result">The target result.</param>
+    /// <param name="writer">The writer used for networking.</param>
+    public static void WriteResultTo(PathResult result, BinaryWriter writer)
+    {
+        bool isAlreadyAtGoal = result.IsAlreadyAtGoal;
+        List<PathEdge> edges = result.Path;
+
+        writer.Write(isAlreadyAtGoal);
+        writer.Write(edges.Count);
+
+        foreach (PathEdge edge in edges)
+        {
+            writer.Write(edge.From.X);
+            writer.Write(edge.From.Y);
+            writer.Write(edge.To.X);
+            writer.Write(edge.To.Y);
+            writer.Write(edge.EdgeType);
+        }
+    }
+
+    /// <summary>
+    /// Allows a <see cref="PathResult"/> to be read from a <see cref="BinaryReader"/> for networking purposes.
+    /// </summary>
+    /// <param name="reader">The reader used for networking.</param>
+    /// <returns>The target result.</returns>
+    public static PathResult ReadResultFrom(BinaryReader reader)
+    {
+        bool isAlreadyAtGoal = reader.ReadBoolean();
+        int count = reader.ReadInt32();
+
+        List<PathEdge> edges = [];
+
+        for (int i = 0; i < count; i++)
+        {
+            int fromX = reader.ReadInt32();
+            int fromY = reader.ReadInt32();
+            int toX = reader.ReadInt32();
+            int toY = reader.ReadInt32();
+            int edgeType = reader.ReadInt32();
+
+            edges.Add(new(new(fromX, fromY), new(toX, toY), edgeType));
+        }
+
+        return new PathResult(edges, isAlreadyAtGoal);
     }
 }
