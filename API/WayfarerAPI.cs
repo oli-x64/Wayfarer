@@ -198,15 +198,15 @@ public static class WayfarerAPI
         List<PathEdge> edges = result.Path;
 
         writer.Write(isAlreadyAtGoal);
-        writer.Write(edges.Count);
+        writer.Write7BitEncodedInt(edges.Count);
 
         foreach (PathEdge edge in edges)
         {
-            writer.Write(edge.From.X);
-            writer.Write(edge.From.Y);
-            writer.Write(edge.To.X);
-            writer.Write(edge.To.Y);
-            writer.Write(edge.EdgeType);
+            writer.Write((ushort)edge.From.X);
+            writer.Write((ushort)edge.From.Y);
+            writer.Write((ushort)edge.To.X);
+            writer.Write((ushort)edge.To.Y);
+            writer.Write((byte)edge.EdgeType);
         }
     }
 
@@ -218,17 +218,17 @@ public static class WayfarerAPI
     public static PathResult ReadResultFrom(BinaryReader reader)
     {
         bool isAlreadyAtGoal = reader.ReadBoolean();
-        int count = reader.ReadInt32();
+        int count = reader.Read7BitEncodedInt();
 
         List<PathEdge> edges = [];
 
         for (int i = 0; i < count; i++)
         {
-            int fromX = reader.ReadInt32();
-            int fromY = reader.ReadInt32();
-            int toX = reader.ReadInt32();
-            int toY = reader.ReadInt32();
-            int edgeType = reader.ReadInt32();
+            var fromX = reader.ReadUInt16();
+            var fromY = reader.ReadUInt16();
+            var toX = reader.ReadUInt16();
+            var toY = reader.ReadUInt16();
+            var edgeType = reader.ReadByte();
 
             edges.Add(new(new(fromX, fromY), new(toX, toY), edgeType));
         }
