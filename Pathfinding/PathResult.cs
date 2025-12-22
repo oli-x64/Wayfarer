@@ -25,7 +25,9 @@ public sealed class PathResult
     /// <summary> The index of the current path edge. </summary>
     public int Index => Index;
     /// <summary> The current path edge. </summary>
-    public PathEdge Current => path[index];
+    public PathEdge? Current => index < path.Count ? path[index] : null;
+    /// <summary> The next path edge. </summary>
+    public PathEdge? Next => (index + 1) < path.Count ? path[index + 1] : null;
     /// <summary> All the computed edges. </summary>
     public ReadOnlySpan<PathEdge> Edges => CollectionsMarshal.AsSpan(path);
 

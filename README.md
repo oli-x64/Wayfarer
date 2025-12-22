@@ -112,14 +112,12 @@ Once `NewPathFound` is called, the NPC will switch to a normal AI state that let
 ```cs
         // In NON-WAITING STATE NPC AI.
         // Will be true if path is null, or if the path does not have any edges left.
-        if (path is null || !path.HasPath)
+        if (path is null || path.Current is not PathEdge edge)
         {
             /* Transition back into 'Waiting' state; re-request path.*/
             StartPathing();
             return;
         }
-
-        PathEdge edge = path.Current;
 
         if (edge.Is<Walk>())
         {
