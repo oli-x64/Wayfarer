@@ -195,10 +195,10 @@ public static class WayfarerAPI
     public static void WriteResultTo(PathResult result, BinaryWriter writer)
     {
         bool isAlreadyAtGoal = result.IsAlreadyAtGoal;
-        List<PathEdge> edges = result.Path;
+        var edges = result.Edges;
 
         writer.Write(isAlreadyAtGoal);
-        writer.Write7BitEncodedInt(edges.Count);
+        writer.Write7BitEncodedInt(edges.Length);
 
         foreach (PathEdge edge in edges)
         {

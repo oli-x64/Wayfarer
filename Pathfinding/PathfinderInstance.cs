@@ -84,9 +84,7 @@ internal sealed class PathfinderInstance : IDisposable
         if (navMesh is null)
             return;
 
-        IEnumerable<PathEdge> edges = path.Path.AsEnumerable<PathEdge>();
-
-        foreach (PathEdge edge in edges)
+        foreach (ref readonly var edge in path.Edges)
         {
             DrawEdge(spriteBatch, edge, navMesh);
         }

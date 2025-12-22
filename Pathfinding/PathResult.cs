@@ -1,11 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using Microsoft.Xna.Framework;
-using Wayfarer.API;
+using System.Runtime.InteropServices;
 using Wayfarer.Edges;
 
 namespace Wayfarer.Pathfinding;
@@ -15,26 +10,24 @@ namespace Wayfarer.Pathfinding;
 /// </summary>
 public sealed class PathResult
 {
-    /// <summary>
-    /// Returns true if the path has not yet advanced to the final edge. This is never true if <see cref="IsAlreadyAtGoal"/> is true.
-    /// </summary>
-    public bool HasPath => !IsAlreadyAtGoal && index <= path.Count - 1;
-
-    /// <summary>
-    /// The current path edge.
-    /// </summary>
-    public PathEdge Current => path[index];
-
     private int index;
-
     private readonly List<PathEdge> path;
-
-    internal List<PathEdge> Path => path;
 
     /// <summary>
     /// Returns true when pathfinding determines the navigator was already at its ideal destination.
     /// </summary>
-    public bool IsAlreadyAtGoal {  get; private set; } 
+    public bool IsAlreadyAtGoal { get; private set; }
+
+    /// <summary>
+    /// Returns true if the path has not yet advanced to the final edge. This is never true if <see cref="IsAlreadyAtGoal"/> is true.
+    /// </summary>
+    public bool HasPath => !IsAlreadyAtGoal && index <= path.Count - 1;
+    /// <summary> The index of the current path edge. </summary>
+    public int Index => Index;
+    /// <summary> The current path edge. </summary>
+    public PathEdge Current => path[index];
+    /// <summary> All the computed edges. </summary>
+    public ReadOnlySpan<PathEdge> Edges => CollectionsMarshal.AsSpan(path);
 
     internal PathResult(List<PathEdge> path, bool alreadyAtGoal)
     {
