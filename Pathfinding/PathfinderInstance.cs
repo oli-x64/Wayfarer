@@ -44,12 +44,12 @@ internal sealed class PathfinderInstance : IDisposable
         if (newCentre is not null)
             navMeshParameters = new(newCentre.Value, navMeshParameters.TileRadius, navMeshParameters.IsValidNode);
 
-        RequestProcessor.RequestNavMeshAsync(handle, navMeshParameters, navigatorParameters, true, cancellationTokenSource.Token);
+        _ = RequestProcessor.RequestNavMeshAsync(handle, navMeshParameters, navigatorParameters, cancellationTokenSource.Token);
     }
 
     public void RecalculatePathfinding(Point[] starts, Action<PathResult> onComplete)
     {
-        RequestProcessor.RequestPathfindingAsync(handle, navMeshParameters, navigatorParameters, starts, onComplete, cancellationTokenSource.Token);
+        _ = RequestProcessor.RequestPathfindingAsync(handle, navMeshParameters, navigatorParameters, starts, onComplete, cancellationTokenSource.Token);
     }
 
     public bool IsValidNode(Point node)

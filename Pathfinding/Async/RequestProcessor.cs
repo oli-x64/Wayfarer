@@ -1,26 +1,19 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Xna.Framework;
 using Terraria;
 using Wayfarer.API;
 using Wayfarer.Data;
 using Wayfarer.Edges;
-using Microsoft.Xna.Framework;
 
 namespace Wayfarer.Pathfinding.Async;
 
 internal static class RequestProcessor
 {
-    private static readonly int MaxConcurrentTasks = Math.Max(Environment.ProcessorCount / 2, 1);
-
-    private static readonly List<Task> processors = [];
-    private static readonly ConcurrentQueue<AsyncRequest> navMeshRequests = [];
-    private static readonly ConcurrentQueue<AsyncRequest> pathRequests = [];
-    private static readonly ConcurrentDictionary<WayfarerHandle, Task<NavMesh>> navMeshes = [];
+    private static readonly ConcurrentDictionary<WayfarerHandle, TaskCompletionSource<NavMesh>> navMeshes = [];
 
     private static CancellationTokenSource globalShutdownCts;
 
@@ -32,17 +25,6 @@ internal static class RequestProcessor
             return;
 
         globalShutdownCts = new();
-
-        for (int i = 0; i < MaxConcurrentTasks; i++)
-        {
-            processors.Add(Task.Factory.StartNew(
-                () => WorkerLoop(globalShutdownCts.Token),
-                globalShutdownCts.Token,
-                TaskCreationOptions.LongRunning,
-                TaskScheduler.Default)
-            );
-        }
-
         initialised = true;
     }
 
@@ -53,88 +35,85 @@ internal static class RequestProcessor
 
         globalShutdownCts?.Cancel();
 
-        while (pathRequests.TryDequeue(out AsyncRequest request))
-        {
-            if (request is PathfindingRequest pathRequest)
-                pathRequest.CompletionSource.TrySetCanceled();
-        }
-        while (navMeshRequests.TryDequeue(out AsyncRequest request))
-        {
-            if (request is NavMeshRequest navRequest)
-                navRequest.CompletionSource.TrySetCanceled();
-        }
-
-        if (processors.Count != 0)
-        {
-            try
-            {
-                Task.WaitAll(processors.ToArray());
-            }
-            catch (OperationCanceledException) { }
-        }
-
         navMeshes.Clear();
         globalShutdownCts?.Dispose();
-        processors.Clear();
 
         initialised = false;
     }
 
-    public static Task<NavMesh> RequestNavMeshAsync(
-        WayfarerHandle source,
-        NavMeshParameters navMeshParameters,
-        NavigatorParameters navigatorParameters,
-        bool forceRegenerate = true,
-        CancellationToken token = default)
+    public static async Task<NavMesh> RequestNavMeshAsync(
+        WayfarerHandle handle,
+        NavMeshParameters navMeshParams,
+        NavigatorParameters navigatorParams,
+        CancellationToken token = default
+    )
     {
-        if (forceRegenerate)
+        using var linkedCts = token != default ? CancellationTokenSource.CreateLinkedTokenSource(globalShutdownCts.Token, token) : default;
+        var linkedToken = token != default ? linkedCts.Token : globalShutdownCts.Token;
+        var tcs = new TaskCompletionSource<NavMesh>();
+        var pair = KeyValuePair.Create(handle, tcs);
+
+        try
         {
-            NavMeshRequest request = new(source, navMeshParameters, navigatorParameters, token == default ? globalShutdownCts.Token : token);
-
-            navMeshRequests.Enqueue(request);
-
             navMeshes.AddOrUpdate(
-                source,
-                addValueFactory: _ => request.CompletionSource.Task,
-                updateValueFactory: (_, existingTask) => request.CompletionSource.Task
+                handle,
+                addValueFactory: _ => tcs,
+                updateValueFactory: (_, existingTask) =>
+                {
+                    //tcs.Task.GetAwaiter().GetResult();
+                    return tcs;
+                }
             );
 
-            return request.CompletionSource.Task;
+            var result = await ComputeNavMeshAsync(navMeshParams, navigatorParams, linkedToken);
+            tcs.SetResult(result);
+
+            return result;
         }
-        else
+        catch (OperationCanceledException)
         {
-            return navMeshes.GetOrAdd(source, (keyParams) =>
-            {
-                NavMeshRequest request = new(source, navMeshParameters, navigatorParameters, token == default ? globalShutdownCts.Token : token);
-
-                navMeshRequests.Enqueue(request);
-
-                return request.CompletionSource.Task;
-            });
+            tcs.SetCanceled(token);
+            navMeshes.TryRemove(pair);
+            return null;
+        }
+        catch (Exception e)
+        {
+            tcs.SetException(e);
+            navMeshes.TryRemove(pair);
+            return null;
         }
     }
 
-    public static Task<PathResult> RequestPathfindingAsync(
-        WayfarerHandle source,
-        NavMeshParameters navMeshKey,
+    public static async Task<PathResult> RequestPathfindingAsync(
+        WayfarerHandle handle,
+        NavMeshParameters navMeshParams,
         NavigatorParameters navigatorParams,
         Point[] starts,
         Action<PathResult> onComplete,
-        CancellationToken token = default)
+        CancellationToken token = default
+    )
     {
-        PathfindingRequest request = new(source, navMeshKey, navigatorParams, starts, onComplete, token == default ? globalShutdownCts.Token : token);
+        using var linkedCts = token != default ? CancellationTokenSource.CreateLinkedTokenSource(globalShutdownCts.Token, token) : default;
+        var linkedToken = token != default ? linkedCts.Token : globalShutdownCts.Token;
 
-        pathRequests.Enqueue(request);
+        try
+        {
+            var result = await ComputePathAsync(handle, navMeshParams, navigatorParams, starts, onComplete, linkedToken);
 
-        return request.CompletionSource.Task;
+            return result;
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
     }
 
     public static NavMesh TryGetNavMesh(WayfarerHandle handle)
     {
-        if (navMeshes.TryGetValue(handle, out Task<NavMesh> navMeshTask))
+        if (navMeshes.TryGetValue(handle, out TaskCompletionSource<NavMesh> navMeshTcs))
         {
-            if (navMeshTask.IsCompletedSuccessfully)
-                return navMeshTask.Result;
+            if (navMeshTcs.Task.IsCompletedSuccessfully)
+                return navMeshTcs.Task.Result;
             else
                 return null;
         }
@@ -142,119 +121,39 @@ internal static class RequestProcessor
             return null;
     }
 
-    private static async Task WorkerLoop(CancellationToken globalShutdownToken)
+    private static async Task<NavMesh> ComputeNavMeshAsync(NavMeshParameters navMeshParams, NavigatorParameters navigatorParams, CancellationToken linkedToken)
     {
-        try
-        {
-            while (!globalShutdownToken.IsCancellationRequested)
-            {
-                AsyncRequest request = null;
+        NavMesh newMesh = new(navMeshParams, navigatorParams);
+        newMesh.RegenerateNavMesh(linkedToken);
 
-                if (navMeshRequests.TryDequeue(out AsyncRequest navRequest))
-                {
-                    request = navRequest;
-                }
-                else if (pathRequests.TryDequeue(out AsyncRequest pathRequest))
-                {
-                    request = pathRequest;
-                }
-
-                if (request != null)
-                {
-                    using CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(globalShutdownToken, request.Token);
-
-                    CancellationToken linkedToken = linkedCts.Token;
-
-                    try
-                    {
-                        linkedToken.ThrowIfCancellationRequested();
-
-                        if (request is NavMeshRequest navMeshRequest)
-                        {
-                            await ConsumeNavMeshRequest(navMeshRequest, linkedToken).ConfigureAwait(false);
-                        }
-                        else if (request is PathfindingRequest pathfindingRequest)
-                        {
-                            await ConsumePathfindingRequest(pathfindingRequest, linkedToken).ConfigureAwait(false);
-                        }
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        if (request is NavMeshRequest navMeshRequest)
-                            navMeshRequest.CompletionSource.TrySetCanceled(request.Token.IsCancellationRequested ? request.Token : globalShutdownToken);
-                        else if (request is PathfindingRequest pathfindingRequest)
-                            pathfindingRequest.CompletionSource.TrySetCanceled(request.Token.IsCancellationRequested ? request.Token : globalShutdownToken);
-                    }
-                    catch (Exception e)
-                    {
-                        if (request is NavMeshRequest navMeshRequest)
-                            navMeshRequest.CompletionSource.TrySetException(e);
-                        else if (request is PathfindingRequest pathfindingRequest)
-                            pathfindingRequest.CompletionSource.TrySetException(e);
-                    }
-                }
-                else
-                {
-                    await Task.Delay(50, globalShutdownToken).ConfigureAwait(false);
-                }
-            }
-        }
-        catch (OperationCanceledException) { }
+        linkedToken.ThrowIfCancellationRequested();
+        return newMesh;
     }
 
-    private static async Task ConsumeNavMeshRequest(NavMeshRequest request, CancellationToken linkedToken)
+    private static async Task<PathResult> ComputePathAsync(
+        WayfarerHandle handle,
+        NavMeshParameters navMeshParams,
+        NavigatorParameters navigatorParams,
+        Point[] starts,
+        Action<PathResult> onComplete,
+        CancellationToken linkedToken
+    )
     {
-        try
+        NavMesh navMesh = await RequestNavMeshAsync(handle, navMeshParams, navigatorParams, linkedToken);
+
+        if (navMesh is null)
         {
-            NavMesh newMesh = new(request.NavMeshParameters, request.NavigatorParameters);
-            newMesh.RegenerateNavMesh(linkedToken);
-
-            linkedToken.ThrowIfCancellationRequested();
-
-            request.CompletionSource.TrySetResult(newMesh);
+            return null;
         }
-        catch (OperationCanceledException)
-        {
-            request.CompletionSource.TrySetCanceled(linkedToken);
-            navMeshes.TryRemove(KeyValuePair.Create(request.Source, request.CompletionSource.Task));
-        }
-        catch (Exception e)
-        {
-            request.CompletionSource.TrySetException(e);
-            navMeshes.TryRemove(KeyValuePair.Create(request.Source, request.CompletionSource.Task));
-        }
-    }
 
-    private static async Task ConsumePathfindingRequest(PathfindingRequest request, CancellationToken linkedToken)
-    {
-        try
-        {
-            NavMesh navMesh = await RequestNavMeshAsync(request.Source, request.NavMeshParameters, request.NavigatorParameters, true, linkedToken);
+        linkedToken.ThrowIfCancellationRequested();
 
-            if (navMesh is null)
-            {
-                request.CompletionSource.TrySetResult(null);
-                return;
-            }
+        bool successfulPath = RegeneratePath(linkedToken, starts, out bool alreadyAtGoal, out List<PathEdge> traversal, navMesh);
+        PathResult result = successfulPath ? new(traversal, alreadyAtGoal) : null;
 
-            linkedToken.ThrowIfCancellationRequested();
+        Main.QueueMainThreadAction(() => onComplete(result));
 
-            bool successfulPath = RegeneratePath(linkedToken, request.Starts, out bool alreadyAtGoal, out List<PathEdge> traversal, navMesh);
-
-            PathResult result = successfulPath ? new(traversal, alreadyAtGoal) : null;
-
-            request.CompletionSource.TrySetResult(result);
-
-            Main.QueueMainThreadAction(() => request.OnComplete.Invoke(request.CompletionSource.Task.Result));
-        }
-        catch (OperationCanceledException)
-        {
-            request.CompletionSource.TrySetCanceled(linkedToken);
-        }
-        catch (Exception e)
-        {
-            request.CompletionSource.TrySetException(e);
-        }
+        return result;
     }
 
     private static bool RegeneratePath(CancellationToken token, Point[] starts, out bool alreadyAtGoal, out List<PathEdge> traversal, NavMesh navMesh)
