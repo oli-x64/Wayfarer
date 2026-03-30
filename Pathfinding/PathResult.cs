@@ -23,7 +23,7 @@ public sealed class PathResult
     /// </summary>
     public bool HasPath => !IsAlreadyAtGoal && index <= path.Count - 1;
     /// <summary> The index of the current path edge. </summary>
-    public int Index => Index;
+    public int Index => index;
     /// <summary> The current path edge. </summary>
     public PathEdge? Current => index < path.Count ? path[index] : null;
     /// <summary> The next path edge. </summary>
