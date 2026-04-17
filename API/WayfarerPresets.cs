@@ -39,7 +39,7 @@ public static class WayfarerPresets
             Tile offsetTile = Main.tile[tile.X, checkY];
 
             // Hitbox area is obstructed.
-            if (offsetTile.HasTile && Main.tileSolid[offsetTile.TileType])
+            if (offsetTile.HasTile && Main.tileSolid[offsetTile.TileType] && !Main.tileSolidTop[offsetTile.TileType])
             {
                 return false;
             }
