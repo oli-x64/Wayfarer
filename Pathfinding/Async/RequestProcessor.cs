@@ -123,11 +123,14 @@ internal static class RequestProcessor
 
     private static async Task<NavMesh> ComputeNavMeshAsync(NavMeshParameters navMeshParams, NavigatorParameters navigatorParams, CancellationToken linkedToken)
     {
-        NavMesh newMesh = new(navMeshParams, navigatorParams);
-        newMesh.RegenerateNavMesh(linkedToken);
+        return await Task.Run(() =>
+        {
+            NavMesh newMesh = new(navMeshParams, navigatorParams);
+            newMesh.RegenerateNavMesh(linkedToken);
 
-        linkedToken.ThrowIfCancellationRequested();
-        return newMesh;
+            linkedToken.ThrowIfCancellationRequested();
+            return newMesh;
+        });
     }
 
     private static async Task<PathResult> ComputePathAsync(
@@ -146,17 +149,20 @@ internal static class RequestProcessor
             return null;
         }
 
-        linkedToken.ThrowIfCancellationRequested();
+        return await Task.Run(() =>
+        {
+            linkedToken.ThrowIfCancellationRequested();
 
-        bool successfulPath = RegeneratePath(linkedToken, starts, out bool alreadyAtGoal, out List<PathEdge> traversal, navMesh);
-        PathResult result = successfulPath ? new(traversal, alreadyAtGoal) : null;
+            bool successfulPath = RegeneratePath(starts, out bool alreadyAtGoal, out List<PathEdge> traversal, navMesh, linkedToken);
+            PathResult result = successfulPath ? new(traversal, alreadyAtGoal) : null;
 
-        Main.QueueMainThreadAction(() => onComplete(result));
+            Main.QueueMainThreadAction(() => onComplete(result));
 
-        return result;
+            return result;
+        });
     }
 
-    private static bool RegeneratePath(CancellationToken token, Point[] starts, out bool alreadyAtGoal, out List<PathEdge> traversal, NavMesh navMesh)
+    private static bool RegeneratePath(Point[] starts, out bool alreadyAtGoal, out List<PathEdge> traversal, NavMesh navMesh, CancellationToken token)
     {
         alreadyAtGoal = false;
         traversal = [];

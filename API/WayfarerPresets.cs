@@ -30,14 +30,16 @@ public static class WayfarerPresets
         }
 
         // Check tiles above the standing tile to make sure the navigator's hitbox can fit.
-        for (int yOffsetTiles = 1; yOffsetTiles < heightInTiles + 1; yOffsetTiles++)
+        int y1 = tile.Y - heightInTiles - 1;
+        int y2 = tile.Y - 1;
+        if (y1 < 0 || y2 < 0 || y1 >= Main.maxTilesY || y2 >= Main.maxTilesY) { return false; }
+        
+        for (int checkY = y1; checkY <= y2; checkY++)
         {
-            int offsetTileY = tile.Y - yOffsetTiles;
-
-            Tile offsetTile = Main.tile[tile.X, offsetTileY];
+            Tile offsetTile = Main.tile[tile.X, checkY];
 
             // Hitbox area is obstructed.
-            if (offsetTile.HasTile && Main.tileSolid[offsetTile.TileType])
+            if (offsetTile.HasTile && Main.tileSolid[offsetTile.TileType] && !Main.tileSolidTop[offsetTile.TileType])
             {
                 return false;
             }
